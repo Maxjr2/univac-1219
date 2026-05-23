@@ -15,6 +15,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # serialport (used by the cmd/emulator binary) requires libudev on Linux
+      - name: Install system dependencies
+        run: sudo apt-get update -y && sudo apt-get install -y libudev-dev
+
       - name: Build (excluding web)
         run: cargo build --workspace --exclude web
 
@@ -33,4 +37,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check web crate (wasm32)
-        run: cargo check --package web --target wasm32-unknown-unknown
+        run: cargo check --package univac-leptos --target wasm32-unknown-unknown
