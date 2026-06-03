@@ -23,44 +23,63 @@ fn main() {
     // Read source.
     let source = if cli.input == "-" {
         let mut buf = String::new();
-        io::stdin()
-            .read_to_string(&mut buf)
-            .unwrap_or_else(|e| panic!("cannot read stdin: {e}"));
+        if let Err(e) = io::stdin().read_to_string(&mut buf) {
+            eprintln!("cannot read stdin: {e}");
+            std::process::exit(1);
+        }
         buf
     } else {
-        std::fs::read_to_string(&cli.input)
-            .unwrap_or_else(|e| panic!("cannot read {}: {e}", cli.input))
+        match std::fs::read_to_string(&cli.input) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("cannot read {}: {e}", cli.input);
+                std::process::exit(1);
+            }
+        }
     };
 
     if cli.emit_asm {
-        // Compile to assembly text only.
-        let asm = compiler::compile_to_asm(&source)
-            .unwrap_or_else(|e| {
+        let asm = match compiler::compile_to_asm(&source) {
+            Ok(a) => a,
+            Err(e) => {
                 eprintln!("compile error: {e}");
                 std::process::exit(1);
-            });
+            }
+        };
 
         match &cli.output {
-            Some(path) => std::fs::write(path, &asm)
-                .unwrap_or_else(|e| panic!("cannot write {path}: {e}")),
+            Some(path) => {
+                if let Err(e) = std::fs::write(path, &asm) {
+                    eprintln!("cannot write {path}: {e}");
+                    std::process::exit(1);
+                }
+            }
             None => print!("{asm}"),
         }
     } else {
-        // Compile all the way to a tape.
-        let tape = compiler::compile(&source).unwrap_or_else(|e| {
-            eprintln!("compile error: {e}");
-            std::process::exit(1);
-        });
+        let tape = match compiler::compile(&source) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("compile error: {e}");
+                std::process::exit(1);
+            }
+        };
 
-        // Tape is Vec<u6>; convert to raw bytes for file I/O.
-        let bytes: Vec<u8> = tape.iter().map(|t| u8::from(*t)).collect();
+        let bytes = common::tape::serialize_bin(&tape);
 
         match &cli.output {
-            Some(path) => std::fs::write(path, &bytes)
-                .unwrap_or_else(|e| panic!("cannot write {path}: {e}")),
-            None => io::stdout()
-                .write_all(&bytes)
-                .unwrap_or_else(|e| panic!("cannot write stdout: {e}")),
+            Some(path) => {
+                if let Err(e) = std::fs::write(path, &bytes) {
+                    eprintln!("cannot write {path}: {e}");
+                    std::process::exit(1);
+                }
+            }
+            None => {
+                if let Err(e) = io::stdout().write_all(&bytes) {
+                    eprintln!("cannot write stdout: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }

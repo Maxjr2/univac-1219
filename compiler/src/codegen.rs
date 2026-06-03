@@ -824,7 +824,7 @@ impl Compiler {
         }
 
         // Pass 3: emit global variable DATA words.
-        for (_name, lbl) in self.globals.clone() {
+        for lbl in self.globals.values().cloned().collect::<Vec<_>>() {
             self.emit_data_decl(&lbl, 0);
         }
 

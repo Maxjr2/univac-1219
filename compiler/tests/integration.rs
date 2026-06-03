@@ -55,7 +55,7 @@ fn run_c_source(source: &str) -> i32 {
         steps += 1;
     }
 
-    assert!(emu.running == false, "program did not halt within 5M steps");
+    assert!(!emu.running, "program did not halt within 5M steps");
 
     // Convert AL (UNIVAC one's complement) back to a signed i32.
     common::arith::ones_to_signed_18(emu.al)

@@ -10,5 +10,4 @@ tempfile = "3"
 thiserror = "2"
 
 [dev-dependencies]
-common = { path = "../common" }
 ux = "0.1.6"
