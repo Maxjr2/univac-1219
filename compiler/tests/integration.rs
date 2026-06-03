@@ -169,6 +169,172 @@ fn test_nested_calls() {
     assert_eq!(run_c_source(src), 42);
 }
 
+// ── operator coverage ─────────────────────────────────────────────────────
+
+#[test]
+fn test_modulo() {
+    let src = "int main() { int x; x = 17; return x % 5; }";
+    assert_eq!(run_c_source(src), 2); // 17 % 5 = 2
+}
+
+#[test]
+fn test_bitwise_and() {
+    let src = "int main() { int a; int b; a = 0xFF; b = 0x0F; return a & b; }";
+    assert_eq!(run_c_source(src), 0x0F);
+}
+
+#[test]
+fn test_bitwise_or() {
+    let src = "int main() { int a; int b; a = 0xF0; b = 0x0F; return a | b; }";
+    assert_eq!(run_c_source(src), 0xFF);
+}
+
+#[test]
+fn test_bitwise_xor() {
+    let src = "int main() { int a; int b; a = 0xFF; b = 0x0F; return a ^ b; }";
+    assert_eq!(run_c_source(src), 0xF0);
+}
+
+#[test]
+fn test_bitwise_not() {
+    // ~0 in 18-bit one's complement is 0o777777 = -0, which rounds to 0
+    // ~1 = 0o777776 = -1 in signed; ones_to_signed_18 gives -1
+    let src = "int main() { int x; x = 1; return ~x; }";
+    assert_eq!(run_c_source(src), -1);
+}
+
+#[test]
+fn test_left_shift() {
+    let src = "int main() { int x; x = 3; return x << 2; }"; // 3 << 2 = 12
+    assert_eq!(run_c_source(src), 12);
+}
+
+#[test]
+fn test_right_shift() {
+    let src = "int main() { int x; x = 12; return x >> 2; }"; // 12 >> 2 = 3
+    assert_eq!(run_c_source(src), 3);
+}
+
+#[test]
+fn test_logical_and_true() {
+    let src = "int main() { int a; int b; a = 5; b = 3; return (a > 0) && (b > 0); }";
+    assert_eq!(run_c_source(src), 1);
+}
+
+#[test]
+fn test_logical_and_false() {
+    let src = "int main() { int a; int b; a = 5; b = 0; return (a > 0) && (b > 0); }";
+    assert_eq!(run_c_source(src), 0);
+}
+
+#[test]
+fn test_logical_or_true() {
+    let src = "int main() { int a; int b; a = 0; b = 3; return (a > 0) || (b > 0); }";
+    assert_eq!(run_c_source(src), 1);
+}
+
+#[test]
+fn test_logical_or_false() {
+    let src = "int main() { int a; int b; a = 0; b = 0; return (a > 0) || (b > 0); }";
+    assert_eq!(run_c_source(src), 0);
+}
+
+#[test]
+fn test_logical_not() {
+    let src = "int main() { int x; x = 0; return !x; }";
+    assert_eq!(run_c_source(src), 1);
+}
+
+#[test]
+fn test_negative_constant() {
+    // Negative literal in ENTALK range (uses octal ones-complement encoding)
+    let src = "int main() { int x; x = -7; return x; }";
+    assert_eq!(run_c_source(src), -7);
+}
+
+// ── global variables ──────────────────────────────────────────────────────
+
+#[test]
+fn test_global_var() {
+    let src = r#"
+    int g;
+    int main() {
+        g = 99;
+        return g;
+    }"#;
+    assert_eq!(run_c_source(src), 99);
+}
+
+#[test]
+fn test_global_shared() {
+    let src = r#"
+    int counter;
+    int bump() {
+        counter = counter + 1;
+        return counter;
+    }
+    int main() {
+        counter = 0;
+        bump();
+        bump();
+        return bump();
+    }"#;
+    assert_eq!(run_c_source(src), 3);
+}
+
+// ── break / continue ──────────────────────────────────────────────────────
+
+#[test]
+fn test_break_while() {
+    let src = r#"
+    int main() {
+        int i;
+        i = 0;
+        while (i < 10) {
+            if (i == 5) {
+                break;
+            }
+            i = i + 1;
+        }
+        return i;
+    }"#;
+    assert_eq!(run_c_source(src), 5);
+}
+
+#[test]
+fn test_continue_for() {
+    // Sum only even numbers from 0..9: 0+2+4+6+8 = 20
+    let src = r#"
+    int main() {
+        int i;
+        int s;
+        s = 0;
+        for (i = 0; i < 10; i = i + 1) {
+            if (i % 2 != 0) {
+                continue;
+            }
+            s = s + i;
+        }
+        return s;
+    }"#;
+    assert_eq!(run_c_source(src), 20);
+}
+
+#[test]
+fn test_do_while() {
+    // do { i++; } while (i < 5);  starts at 0, ends at 5
+    let src = r#"
+    int main() {
+        int i;
+        i = 0;
+        do {
+            i = i + 1;
+        } while (i < 5);
+        return i;
+    }"#;
+    assert_eq!(run_c_source(src), 5);
+}
+
 // ── existing assembly smoke-test ──────────────────────────────────────────
 // Assemble and run a few steps of existing UNIVAC assembly programs to
 // ensure the assembler/emulator haven't been broken.

@@ -37,6 +37,9 @@ pub struct Compiler {
     globals: HashMap<String, String>,
     functions: HashMap<String, usize>,
 
+    // Stack of (break_label, continue_label) for nested loops.
+    loop_labels: Vec<(String, String)>,
+
     pending_label: Option<String>,
 }
 
@@ -52,6 +55,7 @@ impl Compiler {
             locals: HashMap::new(),
             globals: HashMap::new(),
             functions: HashMap::new(),
+            loop_labels: Vec::new(),
             pending_label: None,
         }
     }
@@ -109,7 +113,14 @@ impl Compiler {
             return Err(CompileError::ConstantOutOfRange(v));
         }
         if fits_entalk(v) {
-            self.emit(&format!("ENTALK {}", univac_dec(v)));
+            if v >= 0 {
+                self.emit(&format!("ENTALK {v}"));
+            } else {
+                // ENTALK takes a 12-bit unsigned immediate that is sign-extended.
+                // Represent -N as its 12-bit ones-complement value (0o7777 ^ N).
+                let oc12 = 0o7777u32 ^ ((-v) as u32 & 0o7777);
+                self.emit(&format!("ENTALK &O{oc12:o}"));
+            }
         } else {
             let lbl = self.alloc_const_word(univac_dec(v));
             self.emit(&format!("ENTAL {lbl}"));
@@ -637,7 +648,9 @@ impl Compiler {
                 self.set_label(cond_l.clone());
                 self.compile_expr(&ws.node.expression)?;
                 self.emit(&format!("JPALZ {end_l}"));
+                self.loop_labels.push((end_l.clone(), cond_l.clone()));
                 self.compile_stmt(&ws.node.statement)?;
+                self.loop_labels.pop();
                 self.emit(&format!("JP {cond_l}"));
                 self.set_label(end_l);
             }
@@ -650,13 +663,19 @@ impl Compiler {
                     _ => return Err(CompileError::Unsupported("complex for-init".into())),
                 }
                 let cond_l = self.fresh_label("__forc");
+                // `continue` in a for loop jumps to the step expression, not the
+                // condition, so that `i++` still runs before the next iteration.
+                let step_l = self.fresh_label("__fors");
                 let end_l  = self.fresh_label("__fore");
                 self.set_label(cond_l.clone());
                 if let Some(cond) = &fs.node.condition {
                     self.compile_expr(cond)?;
                     self.emit(&format!("JPALZ {end_l}"));
                 }
+                self.loop_labels.push((end_l.clone(), step_l.clone()));
                 self.compile_stmt(&fs.node.statement)?;
+                self.loop_labels.pop();
+                self.set_label(step_l);
                 if let Some(step) = &fs.node.step {
                     self.compile_expr(step)?;
                 }
@@ -665,11 +684,31 @@ impl Compiler {
             }
 
             Statement::DoWhile(dw) => {
-                let top_l = self.fresh_label("__dot");
+                let top_l  = self.fresh_label("__dot");
+                let cond_l = self.fresh_label("__doc"); // continue → re-evaluate condition
+                let end_l  = self.fresh_label("__doe"); // break → exit
                 self.set_label(top_l.clone());
+                self.loop_labels.push((end_l.clone(), cond_l.clone()));
                 self.compile_stmt(&dw.node.statement)?;
+                self.loop_labels.pop();
+                self.set_label(cond_l);
                 self.compile_expr(&dw.node.expression)?;
                 self.emit(&format!("JPALNZ {top_l}"));
+                self.set_label(end_l);
+            }
+
+            Statement::Break => {
+                let (brk, _) = self.loop_labels.last()
+                    .ok_or_else(|| CompileError::Unsupported("break outside loop".into()))?;
+                let lbl = brk.clone();
+                self.emit(&format!("JP {lbl}"));
+            }
+
+            Statement::Continue => {
+                let (_, cont) = self.loop_labels.last()
+                    .ok_or_else(|| CompileError::Unsupported("continue outside loop".into()))?;
+                let lbl = cont.clone();
+                self.emit(&format!("JP {lbl}"));
             }
 
             Statement::Expression(opt_expr) => {
@@ -847,15 +886,14 @@ impl Compiler {
 fn parse_constant(c: &Constant) -> Result<i64, CompileError> {
     match c {
         Constant::Integer(i) => {
+            // lang-c stores the digit string WITHOUT any prefix (0x, 0, 0b) in
+            // i.number, and the base separately in i.base.
             let s: &str = &i.number;
-            // Strip suffix (u, l, ul, ll, etc.)
-            let s = s.trim_end_matches(|c: char| matches!(c, 'u' | 'U' | 'l' | 'L'));
-            let (s, radix) = if s.starts_with("0x") || s.starts_with("0X") {
-                (&s[2..], 16u32)
-            } else if s.starts_with('0') && s.len() > 1 {
-                (&s[1..], 8)
-            } else {
-                (s, 10)
+            let radix = match i.base {
+                IntegerBase::Decimal     => 10u32,
+                IntegerBase::Octal       => 8,
+                IntegerBase::Hexadecimal => 16,
+                IntegerBase::Binary      => 2,
             };
             i64::from_str_radix(s, radix)
                 .map_err(|e| CompileError::Parse(format!("bad integer literal: {e}")))
@@ -898,7 +936,7 @@ fn extract_params(decl: &Node<Declarator>) -> Vec<String> {
         if let DerivedDeclarator::Function(fdecl) = &derived.node {
             let mut params = Vec::new();
             for param in &fdecl.node.parameters {
-                for pd in &param.node.declarator {
+                if let Some(pd) = &param.node.declarator {
                     if let Ok(name) = extract_decl_name(pd) {
                         params.push(name);
                     }
