@@ -10,6 +10,7 @@ ux = "0.1.6"
 console = "0.15.11"
 clap = { version = "4.5.37", features = ["derive"] }
 common = { path = "../common" }
+compiler = { path = "../compiler" }
 serialport = "4.8.1"
 ansi_term = "0.12.1"
 indicatif = "0.18.4"
@@ -25,3 +26,7 @@ path = "src/disassembler/bin/main.rs"
 [[bin]]
 name = "emulator"
 path = "src/emulator/bin/main.rs"
+
+[[bin]]
+name = "cc1219"
+path = "src/compiler/bin/main.rs"
